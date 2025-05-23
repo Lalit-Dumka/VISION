@@ -1,0 +1,9 @@
+Flask==2.3.3 # Or a more recent stable version
+psycopg2-binary==2.9.9 # For PostgreSQL
+requests==2.31.0 # For calling DeepFace API
+python-dotenv==1.0.0 # For .env file
+Pillow==10.1.0 # For image manipulation
+numpy==1.26.2 # For numerical operations, esp. embeddings
+opencv-python==4.8.1.78 # For video processing and image handling
+ultralytics==8.0.220 # For YOLOv8 (ensure compatibility with your best.pt)
+# Add other specific versions if needed

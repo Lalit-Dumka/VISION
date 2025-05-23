@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Add New Person - VISION App{% endblock %}
+
+{% block content %}
+<h2>Add New Person and Face Image</h2>
+<p>Upload a clear image of the person's face. The system will generate an embedding and store it.</p>
+
+<form method="POST" enctype="multipart/form-data" action="{{ url_for('add_person_route') }}">
+    <div class="form-group">
+        <label for="name">Person's Name:</label>
+        <input type="text" class="form-control" id="name" name="name" required>
+    </div>
+    <div class="form-group">
+        <label for="face_image">Face Image (jpg, png, jpeg):</label>
+        <input type="file" class="form-control-file" id="face_image" name="face_image" accept=".jpg,.jpeg,.png" required>
+        <small class="form-text text-muted">Ensure the image contains one clear, forward-facing face.</small>
+    </div>
+    <button type="submit" class="btn btn-primary">Add Person & Face</button>
+    <a href="{{ url_for('manage_faces') }}" class="btn btn-secondary">Cancel</a>
+</form>
+{% endblock %}

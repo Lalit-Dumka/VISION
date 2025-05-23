@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Face Recognition Result - VISION App{% endblock %}
+
+{% block content %}
+<h2>Face Recognition Result</h2>
+
+<div class="row">
+    {% if original_image %}
+    <div class="col-md-6">
+        <h4>Original Captured Frame</h4>
+        <img src="{{ url_for('captured_frame_file', filename=original_image) }}" alt="Original Captured Frame" class="img-fluid mb-3">
+    </div>
+    {% endif %}
+    {% if annotated_image %}
+    <div class="col-md-6">
+        <h4>Annotated Frame</h4>
+        <img src="{{ url_for('captured_frame_file', filename=annotated_image) }}" alt="Annotated Frame" class="img-fluid mb-3">
+    </div>
+    {% elif original_image and not annotated_image and results %}
+     <div class="col-md-6">
+        <h4>Original Frame (Annotation Failed)</h4>
+        <p class="text-warning">Could not draw annotations, but recognition results are below.</p>
+        <img src="{{ url_for('captured_frame_file', filename=original_image) }}" alt="Original Captured Frame" class="img-fluid mb-3">
+    </div>
+    {% endif %}
+</div>
+
+{% if results %}
+    <h4>Recognition Details:</h4>
+    <ul>
+    {% for result in results %}
+        <li>
+            Face Region (x:{{ result.region.x }}, y:{{ result.region.y }}, w:{{ result.region.w }}, h:{{ result.region.h }}) - 
+            Recognized as: <strong>{{ result.name }}</strong>
+            {% if result.similarity and result.name != "Unknown" and result.name != "Embedding Error" and result.name != "Crop Error" %}
+                (Similarity: {{ "%.2f"|format(result.similarity) }})
+            {% endif %}
+        </li>
+    {% endfor %}
+    </ul>
+{% elif not original_image and not annotated_image %}
+    <p>No image was processed or no results to display.</p>
+{% elif not results and (original_image or annotated_image) %}
+     <p>No faces were detected or recognized in the frame.</p>
+{% endif %}
+
+
+<p><a href="{{ url_for('index') }}" class="btn btn-primary mt-3">Back to Home</a></p>
+{% endblock %}

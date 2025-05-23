@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Home - VISION App{% endblock %}
+
+{% block content %}
+<div class="jumbotron">
+    <h1 class="display-4">Welcome to VISION!</h1>
+    <p class="lead">Visual Intelligence for Surveillance, Identification and Organisational Networking.</p>
+    <hr class="my-4">
+    <p>Version 0.1: Dress Analysis (via OpenCV window) & Face Recognition.</p>
+</div>
+
+<div class="row">
+    <div class="col-md-6">
+        <h2>Dress Analysis</h2>
+        <p>Start dress analysis using a video file or a stream URL. The output will be shown in a separate OpenCV window.</p>
+        
+        <form action="{{ url_for('start_dress_analysis') }}" method="post" enctype="multipart/form-data" class="mb-3">
+            <div class="form-group">
+                <label for="source_type">Source Type:</label>
+                <select name="source_type" id="source_type" class="form-control" onchange="toggleSourceInput(this.value)">
+                    <option value="upload">Upload Video File</option>
+                    <option value="stream">Stream URL</option>
+                </select>
+            </div>
+
+            <div id="upload_section" class="form-group">
+                <label for="video_file">Upload Video File:</label>
+                <input type="file" name="video_file" class="form-control-file">
+            </div>
+
+            <div id="stream_section" class="form-group" style="display:none;">
+                <label for="stream_url">Video Stream URL:</label>
+                <input type="url" name="stream_url" class="form-control" placeholder="e.g., rtsp://yourstream or http://yourstream.m3u8">
+            </div>
+            <button type="submit" class="btn btn-primary mr-2">Start Analysis</button>
+        </form>
+        <form action="{{ url_for('stop_dress_analysis') }}" method="post" style="display: inline-block;">
+             <button type="submit" class="btn btn-warning">Stop Analysis</button>
+        </form>
+    </div>
+
+    <div class="col-md-6">
+        <h2>Face Recognition on Captured Frame</h2>
+        <p>While dress analysis is running (OpenCV window active), click below to capture the current frame and perform face recognition.</p>
+        <form action="{{ url_for('capture_frame_and_recognize') }}" method="post">
+            <button type="submit" class="btn btn-success btn-lg">Capture Frame & Recognize Faces</button>
+        </form>
+        <small class="form-text text-muted">Ensure video analysis is running to capture a frame.</small>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function toggleSourceInput(selectedValue) {
+        if (selectedValue === 'upload') {
+            document.getElementById('upload_section').style.display = 'block';
+            document.getElementById('stream_section').style.display = 'none';
+        } else if (selectedValue === 'stream') {
+            document.getElementById('upload_section').style.display = 'none';
+            document.getElementById('stream_section').style.display = 'block';
+        }
+    }
+    // Initialize correctly on page load if a value is pre-selected (e.g. after form error)
+    document.addEventListener('DOMContentLoaded', function() {
+        var initialSourceType = document.getElementById('source_type').value;
+        toggleSourceInput(initialSourceType);
+    });
+</script>
+{% endblock %}
