@@ -160,3 +160,4 @@ if __name__ == '__main__':
     # annotated_path = draw_detections_on_image(test_img_path, recognized_info)
     # if annotated_path:
     #     print(f"Annotated image saved to: {annotated_path}")
+    # hello
