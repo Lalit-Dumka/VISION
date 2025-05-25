@@ -21,6 +21,9 @@
                 <li class="nav-item {% if request.endpoint == 'manage_faces' or request.endpoint == 'add_person_route' %}active{% endif %}">
                     <a class="nav-link" href="{{ url_for('manage_faces') }}">Manage Faces</a>
                 </li>
+                <li class="nav-item {% if request.blueprint == 'movement_monitoring' %}active{% endif %}">
+                    <a class="nav-link" href="{{ url_for('movement_monitoring.dashboard') }}">Surveillance</a>
+                </li>
             </ul>
         </div>
     </nav>

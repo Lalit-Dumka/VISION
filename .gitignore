@@ -30,3 +30,6 @@ captured_frames/*
 
 
 extract_counts/*
+
+movement_monitoring_logs/*
+!movement_monitoring_logs/.gitkeep

@@ -1,0 +1,286 @@
+{% extends "base.html" %}
+{% block title %}Configure Zones for {{ camera.name }} - Surveillance{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h2>Configure Zones for: {{ camera.name }}</h2>
+    <p><a href="{{ url_for('movement_monitoring.manage_cameras') }}" class="btn btn-secondary btn-sm mb-3">Back to Manage Cameras</a></p>
+    <hr>
+
+    <div class="row">
+        <div class="col-md-7">
+            <h4>Define New Zone</h4>
+            <p class="text-muted">
+                Click points on the image below to define a polygon zone. You need at least 3 points to create a zone.
+            </p>
+            
+            <!-- Snapshot for Zone Definition -->
+            <div id="zoneDefinitionArea" style="margin-bottom: 15px; position: relative; display: inline-block;">
+                <h5>Camera Snapshot:</h5>
+                <div style="position: relative; display: inline-block;">
+                    <img id="cameraSnapshot" 
+                         src="{{ url_for('movement_monitoring.snapshot_for_zone_editor', camera_id=camera.id) }}?t={{ range(1,100000)|random }}" 
+                         alt="Snapshot for {{ camera.name }}" 
+                         class="img-fluid" 
+                         style="max-height: 400px; border: 1px solid #ccc; cursor: crosshair; display: block;">
+                    <canvas id="zoneCanvas" 
+                            style="position: absolute; top: 0; left: 0; pointer-events: none; border: 1px solid transparent;"></canvas>
+                </div>
+                <div class="mt-2">
+                    <button type="button" class="btn btn-info btn-sm" onclick="refreshSnapshot()">Refresh Snapshot</button>
+                    <button type="button" class="btn btn-warning btn-sm" onclick="clearPoints()">Clear Points</button>
+                    <span id="pointCount" class="badge badge-secondary ml-2">Points: 0</span>
+                </div>
+                <p><small>If the image is blank, ensure the camera stream is running and refresh. Click on the image to define points for your zone.</small></p>
+            </div>
+
+            <form method="POST" action="{{ url_for('movement_monitoring.configure_camera_zones', camera_id=camera.id) }}" id="zoneForm">
+                <div class="form-group">
+                    <label for="zone_name">Zone Name</label>
+                    <input type="text" class="form-control" id="zone_name" name="zone_name" required>
+                </div>
+                <div class="form-group">
+                    <label for="points_json">Zone Points (JSON format)</label>
+                    <textarea class="form-control" id="points_json" name="points_json" rows="3" readonly required placeholder="Click on the image above to define points"></textarea>
+                    <small>Points will be automatically populated by clicking on the image above. You need at least 3 points.</small>
+                </div>
+                <button type="submit" class="btn btn-primary" id="saveZoneBtn" disabled>Save Zone</button>
+            </form>
+        </div>
+
+        <div class="col-md-5">
+            <h4>Existing Zones</h4>
+            {% if zones %}
+            <ul class="list-group">
+                {% for zone in zones %}
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>{{ zone.zone_name }}</strong>
+                        <br><small class="text-muted">{{ zone.points | length if zone.points else 0 }} points</small>
+                    </div>
+                    <div>
+                        <form action="{{ url_for('movement_monitoring.delete_zone', zone_id=zone.id) }}" method="post" style="display: inline;" 
+                              onsubmit="return confirm('Are you sure you want to delete zone \'{{ zone.zone_name }}\'? This action cannot be undone.');">
+                            <button type="submit" class="btn btn-danger btn-sm" title="Delete Zone">
+                                <i class="fas fa-trash"></i> Delete
+                            </button>
+                        </form>
+                    </div>
+                </li>
+                <li class="list-group-item list-group-item-light">
+                    <small><strong>Points:</strong> {{ zone.points }}</small>
+                </li>
+                {% endfor %}
+            </ul>
+            <div class="mt-3">
+                <small class="text-info">
+                    <i class="fas fa-info-circle"></i> 
+                    Existing zones are shown on the camera snapshot with different colors to help you position new zones.
+                </small>
+            </div>
+            {% else %}
+            <p class="text-muted">No zones defined for this camera yet.</p>
+            <div class="mt-3">
+                <small class="text-info">
+                    <i class="fas fa-info-circle"></i> 
+                    Define your first zone by clicking points on the camera snapshot above.
+                </small>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const snapshotImage = document.getElementById('cameraSnapshot');
+const pointsJsonTextarea = document.getElementById('points_json');
+const zoneCanvas = document.getElementById('zoneCanvas');
+const ctx = zoneCanvas.getContext('2d');
+const pointCountBadge = document.getElementById('pointCount');
+const saveZoneBtn = document.getElementById('saveZoneBtn');
+let points = [];
+let imageLoaded = false;
+
+function resizeCanvas() {
+    if (!imageLoaded) return;
+    
+    const rect = snapshotImage.getBoundingClientRect();
+    zoneCanvas.width = rect.width;
+    zoneCanvas.height = rect.height;
+    
+    // Position canvas exactly over image
+    zoneCanvas.style.width = rect.width + 'px';
+    zoneCanvas.style.height = rect.height + 'px';
+    
+    redrawPoints();
+}
+
+function getClickPosition(event) {
+    if (!imageLoaded) return null;
+    
+    const rect = snapshotImage.getBoundingClientRect();
+    const canvasRect = zoneCanvas.getBoundingClientRect();
+    
+    // Get click position relative to the canvas
+    const clickX = event.clientX - canvasRect.left;
+    const clickY = event.clientY - canvasRect.top;
+    
+    // Convert to image coordinates (accounting for any scaling)
+    const scaleX = snapshotImage.naturalWidth / rect.width;
+    const scaleY = snapshotImage.naturalHeight / rect.height;
+    
+    const imageX = Math.round(clickX * scaleX);
+    const imageY = Math.round(clickY * scaleY);
+    
+    return { x: imageX, y: imageY, canvasX: clickX, canvasY: clickY };
+}
+
+function addPoint(event) {
+    const pos = getClickPosition(event);
+    if (!pos) return;
+    
+    points.push([pos.x, pos.y]);
+    updatePointsDisplay();
+    redrawPoints();
+}
+
+function updatePointsDisplay() {
+    pointsJsonTextarea.value = JSON.stringify(points);
+    pointCountBadge.textContent = `Points: ${points.length}`;
+    saveZoneBtn.disabled = points.length < 3;
+}
+
+function redrawPoints() {
+    if (!imageLoaded) return;
+    
+    ctx.clearRect(0, 0, zoneCanvas.width, zoneCanvas.height);
+    if (points.length === 0) return;
+
+    const rect = snapshotImage.getBoundingClientRect();
+    const scaleX = rect.width / snapshotImage.naturalWidth;
+    const scaleY = rect.height / snapshotImage.naturalHeight;
+
+    // Draw the polygon
+    ctx.strokeStyle = '#ff0000';
+    ctx.fillStyle = 'rgba(255, 0, 0, 0.1)';
+    ctx.lineWidth = 2;
+    
+    ctx.beginPath();
+    
+    // Draw lines between points
+    for (let i = 0; i < points.length; i++) {
+        const point = points[i];
+        const canvasX = point[0] * scaleX;
+        const canvasY = point[1] * scaleY;
+        
+        if (i === 0) {
+            ctx.moveTo(canvasX, canvasY);
+        } else {
+            ctx.lineTo(canvasX, canvasY);
+        }
+    }
+    
+    // Close the polygon if we have at least 3 points
+    if (points.length >= 3) {
+        ctx.closePath();
+        ctx.fill();
+    }
+    ctx.stroke();
+    
+    // Draw points as circles
+    ctx.fillStyle = '#0000ff';
+    for (let i = 0; i < points.length; i++) {
+        const point = points[i];
+        const canvasX = point[0] * scaleX;
+        const canvasY = point[1] * scaleY;
+        
+        ctx.beginPath();
+        ctx.arc(canvasX, canvasY, 4, 0, 2 * Math.PI);
+        ctx.fill();
+        
+        // Add point number
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '12px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText((i + 1).toString(), canvasX, canvasY + 4);
+        ctx.fillStyle = '#0000ff';
+    }
+}
+
+function clearPoints() {
+    points = [];
+    updatePointsDisplay();
+    ctx.clearRect(0, 0, zoneCanvas.width, zoneCanvas.height);
+}
+
+function refreshSnapshot() {
+    const currentSrc = snapshotImage.src.split('?')[0];
+    snapshotImage.src = currentSrc + '?t=' + new Date().getTime();
+    clearPoints(); // Clear points when snapshot refreshes
+}
+
+function handleImageLoad() {
+    imageLoaded = true;
+    resizeCanvas();
+    
+    // Re-enable canvas interactions
+    zoneCanvas.style.pointerEvents = 'auto';
+}
+
+function handleImageError() {
+    console.error('Failed to load camera snapshot');
+    imageLoaded = false;
+    zoneCanvas.style.pointerEvents = 'none';
+}
+
+// Event listeners
+snapshotImage.addEventListener('load', handleImageLoad);
+snapshotImage.addEventListener('error', handleImageError);
+zoneCanvas.addEventListener('click', addPoint);
+window.addEventListener('resize', resizeCanvas);
+
+// Form validation
+document.getElementById('zoneForm').addEventListener('submit', function(e) {
+    if (points.length < 3) {
+        e.preventDefault();
+        alert('Please define at least 3 points to create a zone.');
+        return false;
+    }
+    
+    const zoneName = document.getElementById('zone_name').value.trim();
+    if (!zoneName) {
+        e.preventDefault();
+        alert('Please enter a zone name.');
+        return false;
+    }
+});
+
+// Initial setup
+document.addEventListener('DOMContentLoaded', () => {
+    // Check if image is already loaded (from cache)
+    if (snapshotImage.complete && snapshotImage.naturalWidth > 0) {
+        handleImageLoad();
+    }
+    
+    // If there are existing points in the textarea (e.g. form validation fail), parse and draw them
+    const existingPoints = pointsJsonTextarea.value.trim();
+    if (existingPoints) {
+        try {
+            const parsed = JSON.parse(existingPoints);
+            if (Array.isArray(parsed)) {
+                points = parsed;
+                updatePointsDisplay();
+                // Wait a bit for image to load before drawing
+                setTimeout(redrawPoints, 100);
+            }
+        } catch (e) {
+            console.warn('Failed to parse existing points:', e);
+        }
+    }
+    
+    updatePointsDisplay();
+});
+</script>
+{% endblock %}

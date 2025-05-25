@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Manage Cameras - Surveillance{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h2>Manage Cameras</h2>
+    <hr>
+
+    <div class="card mb-4">
+        <div class="card-header">
+            Add New Camera
+        </div>
+        <div class="card-body">
+            <form method="POST" action="{{ url_for('movement_monitoring.manage_cameras') }}">
+                <div class="form-group">
+                    <label for="name">Camera Name</label>
+                    <input type="text" class="form-control" id="name" name="name" required>
+                </div>
+                <div class="form-group">
+                    <label for="source_type">Source Type</label>
+                    <select class="form-control" id="source_type" name="source_type" onchange="toggleSourcePathInput(this.value)">
+                        <option value="stream">Stream URL</option>
+                        <option value="video_file">Video File Path</option>
+                    </select>
+                </div>
+                <div id="source_path_stream_group" class="form-group">
+                    <label for="source_path_stream">Stream URL</label>
+                    <input type="url" class="form-control" id="source_path_stream" name="source_path_stream" placeholder="e.g., rtsp://yourstream or http://yourstream.m3u8">
+                </div>
+                <div id="source_path_video_group" class="form-group" style="display:none;">
+                    <label for="source_path_video">Video File Path</label>
+                    <input type="text" class="form-control" id="source_path_video" name="source_path_video" placeholder="e.g., /path/to/your/video.mp4 or C:\videos\vid.avi">
+                    <small class="form-text text-muted">Ensure the application has access to this file path.</small>
+                </div>
+                <button type="submit" class="btn btn-primary">Add Camera</button>
+            </form>
+        </div>
+    </div>
+
+    <h3>Existing Cameras</h3>
+    {% if cameras %}
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Path</th>
+                <th>Active</th>
+                <th>Created</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for camera in cameras %}
+            <tr>
+                <td>{{ camera.id }}</td>
+                <td>{{ camera.name }}</td>
+                <td>{{ camera.source_type }}</td>
+                <td><small>{{ camera.source_path }}</small></td>
+                <td>{{ "Yes" if camera.is_active else "No" }}</td>
+                <td>{{ camera.created_at.strftime('%Y-%m-%d %H:%M') if camera.created_at else 'N/A' }}</td>
+                <td>
+                    <a href="{{ url_for('movement_monitoring.configure_camera_zones', camera_id=camera.id) }}" class="btn btn-info btn-sm">Zones</a>
+                    <!-- Add Edit/Delete buttons here -->
+                    <!-- <a href="#" class="btn btn-warning btn-sm">Edit</a> -->
+                    <!-- <form action="#" method="post" style="display:inline;"><button type="submit" class="btn btn-danger btn-sm">Delete</button></form> -->
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p>No cameras have been added yet.</p>
+    {% endif %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleSourcePathInput(selectedType) {
+    if (selectedType === 'video_file') {
+        document.getElementById('source_path_stream_group').style.display = 'none';
+        document.getElementById('source_path_video_group').style.display = 'block';
+        document.getElementById('source_path_stream').required = false;
+        document.getElementById('source_path_video').required = true;
+    } else { // stream
+        document.getElementById('source_path_stream_group').style.display = 'block';
+        document.getElementById('source_path_video_group').style.display = 'none';
+        document.getElementById('source_path_stream').required = true;
+        document.getElementById('source_path_video').required = false;
+    }
+}
+// Initialize correctly on page load
+document.addEventListener('DOMContentLoaded', function() {
+    toggleSourcePathInput(document.getElementById('source_type').value);
+});
+</script>
+{% endblock %}

@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Surveillance Dashboard - VISION App{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2>Surveillance Dashboard</h2>
+        <a href="{{ url_for('movement_monitoring.manage_cameras') }}" class="btn btn-primary">Manage Cameras</a>
+    </div>
+
+    {% if not cameras %}
+    <div class="alert alert-info" role="alert">
+        No cameras configured yet. <a href="{{ url_for('movement_monitoring.manage_cameras') }}">Add a camera</a> to get started.
+    </div>
+    {% else %}
+    <div class="row">
+        {% for camera in cameras %}
+        <div class="col-md-6 col-lg-4 mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">{{ camera.name }} (ID: {{ camera.id }})</h5>
+                </div>
+                <div class="card-body">
+                    <p class="card-text">
+                        <strong>Source Type:</strong> {{ camera.source_type }}<br>
+                        <strong>Path:</strong> <small>{{ camera.source_path }}</small><br>
+                        <strong>Status:</strong> 
+                        {% if camera.id in active_streams %}
+                            <span class="badge badge-success">Running</span>
+                        {% else %}
+                            <span class="badge badge-secondary">Stopped</span>
+                        {% endif %}<br>
+                        <strong>Active:</strong> {{ "Yes" if camera.is_active else "No" }}
+                    </p>
+                    
+                    <!-- Placeholder for live feed or latest snapshot -->
+                    <div class="text-center mb-2" style="height: 180px; background-color: #f0f0f0; display:flex; align-items:center; justify-content:center;">
+                        <small>Live feed/snapshot placeholder for {{camera.name}}</small>
+                        <!-- In a real app, this would be an <img> tag updated by JS or a video element -->
+                         <!-- <img src="{{ url_for('movement_monitoring.snapshot_for_zone_editor', camera_id=camera.id) }}?t={{ range(1, 100000) | random }}" alt="Live feed for {{ camera.name }}" class="img-fluid"> -->
+                    </div>
+
+                    <div class="btn-group w-100" role="group">
+                        {% if camera.id in active_streams %}
+                        <form action="{{ url_for('movement_monitoring.stop_camera_stream', camera_id=camera.id) }}" method="post" style="display: inline-block; flex-grow: 1;">
+                            <button type="submit" class="btn btn-danger btn-block">Stop Stream</button>
+                        </form>
+                        {% else %}
+                        <form action="{{ url_for('movement_monitoring.start_camera_stream', camera_id=camera.id) }}" method="post" style="display: inline-block; flex-grow: 1;">
+                            <button type="submit" class="btn btn-success btn-block" {{ 'disabled' if not camera.is_active }}>Start Stream</button>
+                        </form>
+                        {% endif %}
+                    </div>
+                    <a href="{{ url_for('movement_monitoring.configure_camera_zones', camera_id=camera.id) }}" class="btn btn-info btn-sm btn-block mt-2">Configure Zones</a>
+                    <!-- Add more actions like view logs, edit camera etc. -->
+                </div>
+                <div class="card-footer text-muted">
+                    Added: {{ camera.created_at.strftime('%Y-%m-%d %H:%M') if camera.created_at else 'N/A' }}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Optional: Add JavaScript for dynamic updates, e.g., refreshing snapshots or status
+// function refreshCameraSnapshots() {
+//     document.querySelectorAll('img[alt^="Live feed for"]').forEach(img => {
+//         const originalSrc = img.src.split('?')[0];
+//         img.src = originalSrc + '?t=' + new Date().getTime();
+//     });
+// }
+// setInterval(refreshCameraSnapshots, 5000); // Refresh every 5 seconds
+</script>
+{% endblock %}

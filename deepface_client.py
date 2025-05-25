@@ -8,7 +8,7 @@ import mimetypes # To determine image type for data URI
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-DEEPFACE_API_BASE_URL = os.getenv("DEEPFACE_API_BASE_URL", "http://127.0.0.1:5005")
+DEEPFACE_API_BASE_URL = os.getenv("DEEPFACE_API_BASE_URL", "http://127.0.0.1:8080")
 # Set facial recognition model: VGG-Face, Facenet, Facenet512, OpenFace, DeepFace, DeepId, ArcFace, Dlib, SFace, GhostFaceNet
 DEFAULT_MODEL_NAME = "Facenet"
 # DEFAULT_MODEL_NAME = "Facenet512"

@@ -22,6 +22,13 @@ app.config['UPLOAD_FOLDER'] = os.getenv('UPLOAD_FOLDER', 'uploads/faces')
 app.config['CAPTURED_FRAMES_FOLDER'] = os.getenv('CAPTURED_FRAMES_FOLDER', 'captured_frames')
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
+# --- Register Blueprints ---
+# Import and register the new blueprint for movement monitoring
+from movement_monitoring.routes import movement_monitoring_bp, init_movement_monitoring_db
+app.register_blueprint(movement_monitoring_bp)
+# --- End Register Blueprints ---
+
+
 # DeepFace specific configurations from .env
 DEEPFACE_DETECTOR_BACKEND = os.getenv('DEEPFACE_DETECTOR_BACKEND', 'mtcnn')
 DEEPFACE_DETECTION_CONFIDENCE_THRESHOLD = float(os.getenv('DEEPFACE_DETECTION_CONFIDENCE_THRESHOLD', 0.90))
@@ -32,6 +39,8 @@ os.makedirs(app.config['CAPTURED_FRAMES_FOLDER'], exist_ok=True)
 
 with app.app_context():
     db.init_db()
+    # Initialize movement monitoring DB tables after main DB and blueprint registration
+    init_movement_monitoring_db()
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
 
