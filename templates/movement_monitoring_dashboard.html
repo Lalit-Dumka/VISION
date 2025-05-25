@@ -61,7 +61,10 @@
                         </form>
                         {% endif %}
                     </div>
-                    <a href="{{ url_for('movement_monitoring.configure_camera_zones', camera_id=camera.id) }}" class="btn btn-info btn-sm btn-block mt-2">Configure Zones</a>
+                    <div class="btn-group w-100 mt-2" role="group">
+                        <a href="{{ url_for('movement_monitoring.configure_camera_zones', camera_id=camera.id) }}" class="btn btn-info btn-sm">Configure Zones</a>
+                        <a href="{{ url_for('movement_monitoring.view_movements', camera_id=camera.id) }}" class="btn btn-warning btn-sm">View Movements</a>
+                    </div>
                     <!-- Add more actions like view logs, edit camera etc. -->
                 </div>
                 <div class="card-footer text-muted">
@@ -77,13 +80,117 @@
 
 {% block scripts %}
 <script>
-// Optional: Add JavaScript for dynamic updates, e.g., refreshing snapshots or status
-// function refreshCameraSnapshots() {
-//     document.querySelectorAll('img[alt^="Live feed for"]').forEach(img => {
-//         const originalSrc = img.src.split('?')[0];
-//         img.src = originalSrc + '?t=' + new Date().getTime();
-//     });
-// }
-// setInterval(refreshCameraSnapshots, 5000); // Refresh every 5 seconds
+let feedRefreshInterval;
+let refreshCount = 0;
+
+// Auto-refresh camera feeds and snapshots
+function refreshCameraFeeds() {
+    refreshCount++;
+    console.log(`Refreshing camera feeds - iteration ${refreshCount}`);
+    
+    // Refresh live feeds (for running cameras)
+    document.querySelectorAll('img.camera-feed').forEach(img => {
+        const originalSrc = img.src.split('?')[0];
+        const newSrc = originalSrc + '?t=' + Date.now() + '&refresh=' + refreshCount;
+        
+        // Create a new image to test if it loads before replacing
+        const newImg = new Image();
+        newImg.onload = function() {
+            img.src = newSrc;
+        };
+        newImg.onerror = function() {
+            console.warn('Failed to load new feed for:', img.alt);
+        };
+        newImg.src = newSrc;
+    });
+    
+    // Refresh snapshots (for stopped cameras) less frequently
+    if (refreshCount % 5 === 0) { // Every 5th refresh (10 seconds)
+        document.querySelectorAll('img.camera-snapshot').forEach(img => {
+            const originalSrc = img.src.split('?')[0];
+            const newSrc = originalSrc + '?t=' + Date.now() + '&refresh=' + refreshCount;
+            
+            const newImg = new Image();
+            newImg.onload = function() {
+                img.src = newSrc;
+            };
+            newImg.onerror = function() {
+                console.warn('Failed to load new snapshot for:', img.alt);
+            };
+            newImg.src = newSrc;
+        });
+    }
+}
+
+// Start auto-refresh when page loads
+function startAutoRefresh() {
+    if (feedRefreshInterval) {
+        clearInterval(feedRefreshInterval);
+    }
+    feedRefreshInterval = setInterval(refreshCameraFeeds, 2000); // Every 2 seconds
+    console.log('Auto-refresh started');
+}
+
+// Stop auto-refresh
+function stopAutoRefresh() {
+    if (feedRefreshInterval) {
+        clearInterval(feedRefreshInterval);
+        feedRefreshInterval = null;
+        console.log('Auto-refresh stopped');
+    }
+}
+
+// Handle image loading errors and successes
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('img.camera-feed, img.camera-snapshot').forEach(img => {
+        img.addEventListener('error', function() {
+            console.error('Image failed to load:', this.src);
+            // If image fails to load, show a placeholder
+            this.style.display = 'none';
+            let placeholder = this.parentNode.querySelector('.feed-placeholder');
+            if (!placeholder) {
+                placeholder = document.createElement('div');
+                placeholder.className = 'feed-placeholder';
+                placeholder.innerHTML = '<small class="text-muted">Feed unavailable<br>Camera: ' + this.alt.replace(/Live feed for |Snapshot for /, '') + '</small>';
+                placeholder.style.cssText = 'display: flex; align-items: center; justify-content: center; height: 180px; color: #6c757d; background-color: #f8f9fa; border: 1px dashed #dee2e6; border-radius: 4px;';
+                this.parentNode.appendChild(placeholder);
+            }
+        });
+        
+        img.addEventListener('load', function() {
+            // Remove any error placeholders when image loads successfully
+            const placeholder = this.parentNode.querySelector('.feed-placeholder');
+            if (placeholder) {
+                placeholder.remove();
+            }
+            this.style.display = 'block';
+        });
+    });
+    
+    // Start auto-refresh
+    startAutoRefresh();
+});
+
+// Handle page visibility changes (pause/resume refresh when tab is not active)
+document.addEventListener('visibilitychange', function() {
+    if (document.hidden) {
+        console.log('Page hidden, stopping auto-refresh');
+        stopAutoRefresh();
+    } else {
+        console.log('Page visible, starting auto-refresh');
+        startAutoRefresh();
+    }
+});
+
+// Clean up interval when page is unloaded
+window.addEventListener('beforeunload', function() {
+    stopAutoRefresh();
+});
+
+// Manual refresh button functionality (you can add this to the UI if needed)
+function manualRefresh() {
+    console.log('Manual refresh triggered');
+    refreshCameraFeeds();
+}
 </script>
 {% endblock %}

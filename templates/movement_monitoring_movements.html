@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}Movement History for {{ camera.name }} - Surveillance{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2>Movement History: {{ camera.name }}</h2>
+        <div>
+            <a href="{{ url_for('movement_monitoring.dashboard') }}" class="btn btn-secondary btn-sm">Back to Dashboard</a>
+            <a href="{{ url_for('movement_monitoring.configure_camera_zones', camera_id=camera.id) }}" class="btn btn-info btn-sm">Configure Zones</a>
+        </div>
+    </div>
+
+    <div class="row mb-3">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Camera Information</h5>
+                </div>
+                <div class="card-body">
+                    <p class="mb-1"><strong>Camera Name:</strong> {{ camera.name }}</p>
+                    <p class="mb-1"><strong>Source Type:</strong> {{ camera.source_type }}</p>
+                    <p class="mb-1"><strong>Source Path:</strong> <small>{{ camera.source_path }}</small></p>
+                    <p class="mb-0"><strong>Status:</strong> 
+                        <span class="badge badge-success">Active</span>
+                    </p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Quick Stats</h5>
+                </div>
+                <div class="card-body">
+                    <p class="mb-1"><strong>Total Movements:</strong> {{ movements|length }}</p>
+                    <p class="mb-1"><strong>Recent Entries:</strong> {{ movements|selectattr('movement_type', 'equalto', 'entry')|list|length }}</p>
+                    <p class="mb-0"><strong>Zone Transitions:</strong> {{ movements|selectattr('movement_type', 'equalto', 'zone_transition')|list|length }}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if not movements %}
+    <div class="alert alert-info" role="alert">
+        <i class="fas fa-info-circle"></i> No movements recorded yet for this camera.
+        <br><small>Start the camera stream to begin tracking movements between zones.</small>
+    </div>
+    {% else %}
+    <div class="card">
+        <div class="card-header">
+            <h5 class="mb-0">Recent Movements (Last 100)</h5>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-striped table-hover mb-0">
+                    <thead class="thead-light">
+                        <tr>
+                            <th>Time</th>
+                            <th>Track ID</th>
+                            <th>From Zone</th>
+                            <th>To Zone</th>
+                            <th>Movement Type</th>
+                            <th>Video Time</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for movement in movements %}
+                        <tr>
+                            <td>
+                                <small>{{ movement.system_timestamp.strftime('%H:%M:%S') }}</small>
+                                <br><small class="text-muted">{{ movement.system_timestamp.strftime('%Y-%m-%d') }}</small>
+                            </td>
+                            <td>
+                                <span class="badge badge-primary">ID: {{ movement.track_id }}</span>
+                            </td>
+                            <td>
+                                {% if movement.from_zone_name %}
+                                    <span class="badge badge-info">{{ movement.from_zone_name }}</span>
+                                {% else %}
+                                    <span class="badge badge-secondary">Outside</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if movement.to_zone_name %}
+                                    <span class="badge badge-success">{{ movement.to_zone_name }}</span>
+                                {% else %}
+                                    <span class="badge badge-secondary">Outside</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if movement.movement_type == 'entry' %}
+                                    <span class="badge badge-success">
+                                        <i class="fas fa-sign-in-alt"></i> Entry
+                                    </span>
+                                {% elif movement.movement_type == 'exit' %}
+                                    <span class="badge badge-danger">
+                                        <i class="fas fa-sign-out-alt"></i> Exit
+                                    </span>
+                                {% elif movement.movement_type == 'zone_transition' %}
+                                    <span class="badge badge-warning">
+                                        <i class="fas fa-exchange-alt"></i> Transition
+                                    </span>
+                                {% else %}
+                                    <span class="badge badge-light">{{ movement.movement_type }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if movement.video_timestamp %}
+                                    <small>{{ "%.1f"|format(movement.video_timestamp) }}s</small>
+                                {% else %}
+                                    <small class="text-muted">N/A</small>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="card-footer text-muted">
+            <small>
+                <i class="fas fa-info-circle"></i> 
+                Showing recent movements. 
+                Entry: person entered a zone from outside camera view. 
+                Exit: person left a zone or camera view. 
+                Transition: person moved between zones.
+            </small>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Auto-refresh movements every 10 seconds if on a live camera
+setInterval(function() {
+    // Only refresh if we're viewing movements and there are some movements shown
+    if (window.location.pathname.includes('/movements') && document.querySelector('tbody tr')) {
+        window.location.reload();
+    }
+}, 10000);
+</script>
+{% endblock %}

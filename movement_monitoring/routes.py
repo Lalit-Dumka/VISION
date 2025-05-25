@@ -13,7 +13,7 @@ from ultralytics import YOLO # Import YOLO from ultralytics
 # Use get_db_connection from the main database.py
 from database import get_db_connection # Corrected import
 
-movement_monitoring_bp = Blueprint('movement_monitoring', _name_,
+movement_monitoring_bp = Blueprint('movement_monitoring', __name__,
                            template_folder='../templates',  # Point to main templates folder
                            static_folder='static',
                            url_prefix='/movement_monitoring')
@@ -55,6 +55,32 @@ def init_movement_monitoring_db():
                 details TEXT -- e.g., for future use, like object types
             );
         """)
+        
+        # New table for movement tracking
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS se_movement_logs (
+                id SERIAL PRIMARY KEY,
+                camera_id INTEGER NOT NULL REFERENCES se_cameras(id) ON DELETE CASCADE,
+                track_id INTEGER NOT NULL, -- YOLOv8 track ID
+                from_zone_id INTEGER REFERENCES se_camera_zones(id) ON DELETE SET NULL, -- NULL means entered from outside camera view
+                to_zone_id INTEGER REFERENCES se_camera_zones(id) ON DELETE SET NULL, -- NULL means exited camera view
+                video_timestamp FLOAT, -- Timestamp from the video if available
+                system_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                movement_type TEXT DEFAULT 'zone_transition', -- 'zone_transition', 'entry', 'exit'
+                details TEXT -- Additional information about the movement
+            );
+        """)
+        
+        # Index for better query performance
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_movement_logs_camera_timestamp 
+            ON se_movement_logs(camera_id, system_timestamp DESC);
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_movement_logs_zones 
+            ON se_movement_logs(from_zone_id, to_zone_id);
+        """)
+        
         db_conn.commit()
     finally:
         if db_conn:
@@ -168,12 +194,55 @@ def log_detection_to_db(camera_id, count, zone_id=None, video_timestamp=None, de
         if db_conn:
             db_conn.close()
 
+def log_movement_to_db(camera_id, track_id, from_zone_id, to_zone_id, video_timestamp=None, movement_type='zone_transition', details=""):
+    """Log movement between zones"""
+    db_conn = get_db_connection()
+    try:
+        cursor = db_conn.cursor()
+        cursor.execute(
+            """INSERT INTO se_movement_logs (camera_id, track_id, from_zone_id, to_zone_id, video_timestamp, movement_type, details)
+               VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+            (camera_id, track_id, from_zone_id, to_zone_id, video_timestamp, movement_type, details)
+        )
+        log_id = cursor.fetchone()[0]
+        db_conn.commit()
+        return log_id
+    except Exception as e:
+        db_conn.rollback()
+        current_app.logger.error(f"Error logging movement for camera {camera_id}, track {track_id}: {e}")
+        return None
+    finally:
+        if db_conn:
+            db_conn.close()
+
+def get_recent_movements(camera_id, limit=50):
+    """Get recent movements for a camera"""
+    db_conn = get_db_connection()
+    try:
+        cursor = db_conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        cursor.execute("""
+            SELECT m.*, 
+                   fz.zone_name as from_zone_name, 
+                   tz.zone_name as to_zone_name
+            FROM se_movement_logs m
+            LEFT JOIN se_camera_zones fz ON m.from_zone_id = fz.id
+            LEFT JOIN se_camera_zones tz ON m.to_zone_id = tz.id
+            WHERE m.camera_id = %s
+            ORDER BY m.system_timestamp DESC
+            LIMIT %s
+        """, (camera_id, limit))
+        movements = cursor.fetchall()
+        return movements
+    finally:
+        if db_conn:
+            db_conn.close()
+
 # --- CSV Logging ---
 CSV_LOG_DIR = 'movement_monitoring_logs'
 os.makedirs(CSV_LOG_DIR, exist_ok=True)
 
 def log_detection_to_csv(camera_name, zone_name, count, video_timestamp=None):
-    filename = os.path.join(CSV_LOG_DIR, f"detections_{camera_name.replace(' ', '')}{zone_name.replace(' ', '_')}.csv")
+    filename = os.path.join(CSV_LOG_DIR, f"detections_{camera_name.replace(' ', '_')}_{zone_name.replace(' ', '_')}.csv")
     file_exists = os.path.isfile(filename)
     now = datetime.datetime.now()
     system_timestamp_str = now.strftime("%Y-%m-%d %H:%M:%S")
@@ -190,6 +259,29 @@ def log_detection_to_csv(camera_name, zone_name, count, video_timestamp=None):
             'CameraName': camera_name,
             'ZoneName': zone_name,
             'Count': count
+        })
+
+def log_movement_to_csv(camera_name, track_id, from_zone_name, to_zone_name, video_timestamp=None, movement_type='zone_transition'):
+    """Log movement between zones to CSV"""
+    filename = os.path.join(CSV_LOG_DIR, f"movements_{camera_name.replace(' ', '_')}.csv")
+    file_exists = os.path.isfile(filename)
+    now = datetime.datetime.now()
+    system_timestamp_str = now.strftime("%Y-%m-%d %H:%M:%S")
+    video_ts_str = str(video_timestamp) if video_timestamp is not None else "N/A"
+
+    with open(filename, 'a', newline='') as csvfile:
+        fieldnames = ['SystemTimestamp', 'VideoTimestamp', 'CameraName', 'TrackID', 'FromZone', 'ToZone', 'MovementType']
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow({
+            'SystemTimestamp': system_timestamp_str,
+            'VideoTimestamp': video_ts_str,
+            'CameraName': camera_name,
+            'TrackID': track_id,
+            'FromZone': from_zone_name or 'Outside',
+            'ToZone': to_zone_name or 'Outside',
+            'MovementType': movement_type
         })
 
 ACTIVE_STREAMS = {} # camera_id: { 'thread': threading.Thread, 'stop_event': threading.Event, 'latest_frame': None, 'lock': threading.Lock(), 'model': None }
@@ -309,6 +401,17 @@ def delete_zone(zone_id):
     
     return redirect(url_for('movement_monitoring.configure_camera_zones', camera_id=zone_info['camera_id']))
 
+@movement_monitoring_bp.route('/camera/<int:camera_id>/movements')
+def view_movements(camera_id):
+    """View recent movements for a camera"""
+    camera = get_camera_by_id_from_db(camera_id)
+    if not camera:
+        flash('Camera not found.', 'danger')
+        return redirect(url_for('movement_monitoring.dashboard'))
+    
+    movements = get_recent_movements(camera_id, limit=100)
+    return render_template('movement_monitoring_movements.html', camera=camera, movements=movements)
+
 # Placeholder for actual video processing logic (similar to yolo_analyzer.py or traffic_eye)
 def process_camera_stream(camera_id, source_path, source_type, stop_event):
     cap = None
@@ -328,7 +431,7 @@ def process_camera_stream(camera_id, source_path, source_type, stop_event):
         return
 
     try:
-        current_app.logger.info(f"Starting processing for camera: {camera_db_info['name']} ({source_path})")
+        current_app.logger.info(f"Starting movement tracking for camera: {camera_db_info['name']} ({source_path})")
         if source_type == 'video_file':
             if not os.path.exists(source_path):
                 current_app.logger.error(f"Video file not found: {source_path}")
@@ -344,8 +447,12 @@ def process_camera_stream(camera_id, source_path, source_type, stop_event):
             current_app.logger.error(f"Could not open video source for camera {camera_db_info['name']}: {source_path}")
             return
 
-        frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        # Get FPS for frame skipping calculation
+        source_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0  # Default to 30 if can't determine
+        target_fps = 5.0  # Process at 5 FPS
+        frame_skip = max(1, int(source_fps / target_fps))  # Skip frames to achieve target FPS
+        
+        current_app.logger.info(f"Source FPS: {source_fps:.1f}, Target FPS: {target_fps}, Frame skip: {frame_skip}")
 
         # Load zones for this camera
         db_zones = get_zones_for_camera_from_db(camera_id)
@@ -357,8 +464,13 @@ def process_camera_stream(camera_id, source_path, source_type, stop_event):
             except (json.JSONDecodeError, ValueError) as e:
                 current_app.logger.error(f"Error parsing points for zone {db_zone['zone_name']} (ID: {db_zone['id']}): {e}")
 
+        # Movement tracking state
+        person_zones = {}  # track_id -> current_zone_id (None if outside all zones)
+        person_last_seen = {}  # track_id -> frame_number (for cleanup)
+        
         frame_count = 0
-        log_interval = 30 # Log every 30 frames (approx 1 second for 30fps)
+        processed_frame_count = 0
+        max_frames_missing = int(source_fps * 3)  # Remove tracks not seen for 3 seconds
 
         while not stop_event.is_set() and cap.isOpened():
             ret, frame = cap.read()
@@ -369,75 +481,220 @@ def process_camera_stream(camera_id, source_path, source_type, stop_event):
             frame_count += 1
             processed_frame = frame.copy()
 
-            if frame_count % log_interval == 0:
-                video_timestamp = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0 # in seconds
+            # Process only every nth frame for target FPS
+            if frame_count % frame_skip == 0:
+                processed_frame_count += 1
+                video_timestamp = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0  # in seconds
                 
-                # Perform detection using YOLOv8
-                yolo_results = model(frame, verbose=False) # verbose=False to reduce console output
-                
-                # Process results for the first (and only) image in the batch
+                # Perform tracking using YOLOv8
+                yolo_results = model.track(frame, verbose=False, persist=True)
                 detections_for_frame = yolo_results[0] 
-                all_boxes_data = detections_for_frame.boxes.data # Tensor of [x1, y1, x2, y2, conf, cls]
                 
-                # Filter for person detections (class 0 in COCO)
-                # person_detections is a tensor where each row is [x1, y1, x2, y2, conf, cls]
-                person_detections = all_boxes_data[all_boxes_data[:, 5] == 0]
-
-                # Overall count (all detected persons in the frame)
-                overall_person_count = len(person_detections)
-                log_detection_to_db(camera_id, overall_person_count, video_timestamp=video_timestamp, details="Overall student count")
-                log_detection_to_csv(camera_db_info['name'], "Overall", overall_person_count, video_timestamp=video_timestamp)
-                current_app.logger.debug(f"Camera {camera_db_info['name']}: Overall students: {overall_person_count}")
-
-                # Zone-based counting
-                for zone in zones:
-                    zone_person_count = 0
-                    for det in person_detections:
-                        x_center = (det[0] + det[2]) / 2
-                        y_center = (det[1] + det[3]) / 2
-                        # Check if the center of the bounding box is inside the polygon
-                        if cv2.pointPolygonTest(zone['points'], (float(x_center), float(y_center)), False) >= 0:
-                            zone_person_count += 1
+                current_active_tracks = set()
+                
+                # Check if tracking data is available
+                if detections_for_frame.boxes is not None and detections_for_frame.boxes.data is not None:
+                    # Extract data properly from YOLOv8 results
+                    bbox_xyxys = detections_for_frame.boxes.xyxy.cpu().numpy().tolist()
+                    bbox_confs = detections_for_frame.boxes.conf.cpu().numpy().tolist()
+                    class_ids = detections_for_frame.boxes.cls.cpu().numpy().tolist()
                     
-                    log_detection_to_db(camera_id, zone_person_count, zone_id=zone['id'], video_timestamp=video_timestamp, details=f"Student count in zone {zone['name']}")
-                    log_detection_to_csv(camera_db_info['name'], zone['name'], zone_person_count, video_timestamp=video_timestamp)
-                    current_app.logger.debug(f"Camera {camera_db_info['name']}, Zone {zone['name']}: Students: {zone_person_count}")
+                    # Get track IDs if available
+                    if detections_for_frame.boxes.id is None:
+                        track_ids = []
+                    else:
+                        track_ids = detections_for_frame.boxes.id.cpu().numpy().astype(int).tolist()
+                    
+                    # Filter for person detections (class 0 in COCO) and create proper detections list
+                    person_detections = []
+                    person_track_ids = []
+                    
+                    for i, (bbox, conf, cls_id) in enumerate(zip(bbox_xyxys, bbox_confs, class_ids)):
+                        if int(cls_id) == 0 and i < len(track_ids):  # Person class is 0 in COCO
+                            person_detections.append(bbox)  # [x1, y1, x2, y2]
+                            person_track_ids.append(track_ids[i])
 
-                    # Draw zone polygon on the processed frame
+                    # Process each detected person
+                    if person_track_ids:
+                        for i, (track_id, bbox) in enumerate(zip(person_track_ids, person_detections)):
+                            current_active_tracks.add(track_id)
+                            person_last_seen[track_id] = frame_count
+                            
+                            x1, y1, x2, y2 = bbox
+                            x_center = (x1 + x2) / 2
+                            y_center = (y1 + y2) / 2
+                            
+                            # Determine which zone the person is currently in
+                            current_zone_id = None
+                            current_zone_name = None
+                            for zone in zones:
+                                if cv2.pointPolygonTest(zone['points'], (float(x_center), float(y_center)), False) >= 0:
+                                    current_zone_id = zone['id']
+                                    current_zone_name = zone['name']
+                                    break
+                            
+                            # Check if person has moved between zones
+                            previous_zone_id = person_zones.get(track_id)
+                            
+                            if previous_zone_id != current_zone_id:
+                                # Person has moved between zones or entered/exited
+                                previous_zone_name = None
+                                if previous_zone_id is not None:
+                                    for zone in zones:
+                                        if zone['id'] == previous_zone_id:
+                                            previous_zone_name = zone['name']
+                                            break
+                                
+                                # Determine movement type
+                                if previous_zone_id is None and current_zone_id is not None:
+                                    movement_type = 'entry'
+                                elif previous_zone_id is not None and current_zone_id is None:
+                                    movement_type = 'exit'
+                                else:
+                                    movement_type = 'zone_transition'
+                                
+                                # Log the movement
+                                details = f"Track {track_id} moved from {previous_zone_name or 'Outside'} to {current_zone_name or 'Outside'}"
+                                current_app.logger.info(f"Camera {camera_db_info['name']}: {details}")
+                                
+                                # Log to database and CSV
+                                log_movement_to_db(
+                                    camera_id=camera_id,
+                                    track_id=track_id,
+                                    from_zone_id=previous_zone_id,
+                                    to_zone_id=current_zone_id,
+                                    video_timestamp=video_timestamp,
+                                    movement_type=movement_type,
+                                    details=details
+                                )
+                                
+                                log_movement_to_csv(
+                                    camera_name=camera_db_info['name'],
+                                    track_id=track_id,
+                                    from_zone_name=previous_zone_name,
+                                    to_zone_name=current_zone_name,
+                                    video_timestamp=video_timestamp,
+                                    movement_type=movement_type
+                                )
+                            
+                            # Update person's current zone
+                            person_zones[track_id] = current_zone_id
+                            
+                            # Draw custom bounding box
+                            x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+                            
+                            # Custom smaller bounding box
+                            width = x2 - x1
+                            height = y2 - y1
+                            padding_x = int(width * 0.1)
+                            padding_y = int(height * 0.1)
+                            
+                            custom_x1 = max(0, x1 + padding_x)
+                            custom_y1 = max(0, y1 + padding_y)
+                            custom_x2 = min(processed_frame.shape[1], x2 - padding_x)
+                            custom_y2 = min(processed_frame.shape[0], y2 - padding_y)
+                            
+                            # Color code based on zone
+                            if current_zone_id is not None:
+                                color = (0, 255, 0)  # Green for in-zone
+                            else:
+                                color = (0, 255, 255)  # Yellow for outside zones
+                            
+                            cv2.rectangle(processed_frame, (custom_x1, custom_y1), (custom_x2, custom_y2), color, 2)
+                            
+                            # Add track ID and zone label
+                            label = f'ID: {track_id}'
+                            if current_zone_name:
+                                label += f' ({current_zone_name})'
+                            
+                            label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
+                            cv2.rectangle(processed_frame, (custom_x1, custom_y1 - label_size[1] - 10), 
+                                        (custom_x1 + label_size[0] + 4, custom_y1), color, -1)
+                            cv2.putText(processed_frame, label, (custom_x1 + 2, custom_y1 - 6), 
+                                      cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+
+                # Clean up tracks that haven't been seen for a while
+                tracks_to_remove = []
+                for track_id, last_seen_frame in person_last_seen.items():
+                    if frame_count - last_seen_frame > max_frames_missing:
+                        tracks_to_remove.append(track_id)
+                
+                for track_id in tracks_to_remove:
+                    # Log exit if person was in a zone
+                    if track_id in person_zones and person_zones[track_id] is not None:
+                        previous_zone_id = person_zones[track_id]
+                        previous_zone_name = None
+                        for zone in zones:
+                            if zone['id'] == previous_zone_id:
+                                previous_zone_name = zone['name']
+                                break
+                        
+                        details = f"Track {track_id} lost/exited from {previous_zone_name}"
+                        current_app.logger.info(f"Camera {camera_db_info['name']}: {details}")
+                        
+                        log_movement_to_db(
+                            camera_id=camera_id,
+                            track_id=track_id,
+                            from_zone_id=previous_zone_id,
+                            to_zone_id=None,
+                            video_timestamp=video_timestamp,
+                            movement_type='exit',
+                            details=details
+                        )
+                        
+                        log_movement_to_csv(
+                            camera_name=camera_db_info['name'],
+                            track_id=track_id,
+                            from_zone_name=previous_zone_name,
+                            to_zone_name=None,
+                            video_timestamp=video_timestamp,
+                            movement_type='exit'
+                        )
+                    
+                    del person_zones[track_id]
+                    del person_last_seen[track_id]
+
+                # Draw zone polygons and current counts
+                zone_counts = {}
+                for zone in zones:
+                    zone_counts[zone['id']] = 0
+                
+                # Count people currently in each zone
+                for track_id, zone_id in person_zones.items():
+                    if zone_id is not None:
+                        zone_counts[zone_id] = zone_counts.get(zone_id, 0) + 1
+                
+                # Draw zones with current counts
+                for zone in zones:
                     cv2.polylines(processed_frame, [zone['points']], isClosed=True, color=(0, 255, 255), thickness=2)
-                    cv2.putText(processed_frame, f"{zone['name']}: {zone_person_count}", (zone['points'][0][0], zone['points'][0][1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
-
-                # Draw bounding boxes for all detected persons
-                for det in person_detections:
-                    x1, y1, x2, y2, conf, cls = det
-                    cv2.rectangle(processed_frame, (int(x1), int(y1)), (int(x2), int(y2)), (255, 0, 0), 2)
-                    cv2.putText(processed_frame, f'Student {conf:.2f}', (int(x1), int(y1) - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,0,0), 1)
-
+                    current_count = zone_counts.get(zone['id'], 0)
+                    zone_label = f"{zone['name']}: {current_count}"
+                    cv2.putText(processed_frame, zone_label, (zone['points'][0][0], zone['points'][0][1] - 10), 
+                              cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+            else:
+                continue  # Skip processing this frame if not in the target FPS
+            # Store processed frame for live feed
             if camera_id in ACTIVE_STREAMS:
                 with ACTIVE_STREAMS[camera_id]['lock']:
-                    ACTIVE_STREAMS[camera_id]['latest_frame'] = processed_frame.copy() # Store the annotated frame
+                    ACTIVE_STREAMS[camera_id]['latest_frame'] = processed_frame.copy()
             
-            # Optional: Display window (remove for production/headless)
-            # cv2.imshow(f"Surveillance: {camera_db_info['name']}", processed_frame)
-            # if cv2.waitKey(1) & 0xFF == ord('q'):
-            #    break
+            # Skip video display for production
+            cv2.imshow(f"Movement Tracking: {camera_db_info['name']}", processed_frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+               break
             
-            # Adjust sleep based on processing time and desired FPS, or remove if video is source
+            # Small sleep for streams to yield CPU
             if source_type == 'stream':
-                 time.sleep(0.01) # Small sleep for streams to yield CPU
+                time.sleep(0.01)
 
     except Exception as e:
         current_app.logger.error(f"Error processing camera {camera_db_info.get('name', camera_id)}: {e}", exc_info=True)
     finally:
         if cap:
             cap.release()
-        # if 'model' in ACTIVE_STREAMS.get(camera_id, {}): # Clean up model if it was stored
-        #     del ACTIVE_STREAMS[camera_id]['model']
-        # cv2.destroyAllWindows() # Destroy specific window if shown
-        current_app.logger.info(f"Stopped processing for camera: {camera_db_info.get('name', camera_id)}")
+        cv2.destroyAllWindows()
+        current_app.logger.info(f"Stopped movement tracking for camera: {camera_db_info.get('name', camera_id)}")
         if camera_id in ACTIVE_STREAMS:
-            # Remove the entry from ACTIVE_STREAMS once processing is truly finished or stopped
-            # This was previously inside the thread, ensure it's robustly handled
             try:
                 del ACTIVE_STREAMS[camera_id]
                 current_app.logger.info(f"Removed camera {camera_id} from ACTIVE_STREAMS.")
@@ -649,5 +906,7 @@ def live_feed(camera_id):
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'
+    response.headers['Last-Modified'] = datetime.datetime.utcnow().strftime('%a, %d %b %Y %H:%M:%S GMT')
+    response.headers['ETag'] = f'"{camera_id}-{int(time.time() * 1000)}"'  # Unique ETag with timestamp
     
     return response
