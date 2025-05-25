@@ -288,5 +288,5 @@ This work is licensed under a
 ## Contributors
 
 * [Lalit Dumka](https://www.linkedin.com/in/lalit-dumka) - Design and Development.
-* [Karanpratap Singh Kharka]([linkedin](https://www.linkedin.com/in/karan-pratap-singh-kharka-9b874726a/)) - .
+* [Karanpratap Singh Kharka](https://www.linkedin.com/in/karan-pratap-singh-kharka-9b874726a/) - .
 * [Kavi Kandpal](linkedin) - Data gathering and labelling.
