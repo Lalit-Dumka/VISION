@@ -33,11 +33,21 @@
                         <strong>Active:</strong> {{ "Yes" if camera.is_active else "No" }}
                     </p>
                     
-                    <!-- Placeholder for live feed or latest snapshot -->
+                    <!-- Live feed or latest snapshot -->
                     <div class="text-center mb-2" style="height: 180px; background-color: #f0f0f0; display:flex; align-items:center; justify-content:center;">
-                        <small>Live feed/snapshot placeholder for {{camera.name}}</small>
-                        <!-- In a real app, this would be an <img> tag updated by JS or a video element -->
-                         <!-- <img src="{{ url_for('movement_monitoring.snapshot_for_zone_editor', camera_id=camera.id) }}?t={{ range(1, 100000) | random }}" alt="Live feed for {{ camera.name }}" class="img-fluid"> -->
+                        {% if camera.id in active_streams %}
+                        <img src="{{ url_for('movement_monitoring.live_feed', camera_id=camera.id) }}?t={{ range(1, 100000) | random }}" 
+                             alt="Live feed for {{ camera.name }}" 
+                             class="img-fluid camera-feed" 
+                             style="max-height: 180px; max-width: 100%;"
+                             data-camera-id="{{ camera.id }}">
+                        {% else %}
+                        <img src="{{ url_for('movement_monitoring.snapshot_for_zone_editor', camera_id=camera.id) }}?t={{ range(1, 100000) | random }}" 
+                             alt="Snapshot for {{ camera.name }}" 
+                             class="img-fluid camera-snapshot" 
+                             style="max-height: 180px; max-width: 100%;"
+                             data-camera-id="{{ camera.id }}">
+                        {% endif %}
                     </div>
 
                     <div class="btn-group w-100" role="group">

@@ -13,7 +13,7 @@ from ultralytics import YOLO # Import YOLO from ultralytics
 # Use get_db_connection from the main database.py
 from database import get_db_connection # Corrected import
 
-movement_monitoring_bp = Blueprint('movement_monitoring', __name__,
+movement_monitoring_bp = Blueprint('movement_monitoring', _name_,
                            template_folder='../templates',  # Point to main templates folder
                            static_folder='static',
                            url_prefix='/movement_monitoring')
@@ -173,7 +173,7 @@ CSV_LOG_DIR = 'movement_monitoring_logs'
 os.makedirs(CSV_LOG_DIR, exist_ok=True)
 
 def log_detection_to_csv(camera_name, zone_name, count, video_timestamp=None):
-    filename = os.path.join(CSV_LOG_DIR, f"detections_{camera_name.replace(' ', '_')}_{zone_name.replace(' ', '_')}.csv")
+    filename = os.path.join(CSV_LOG_DIR, f"detections_{camera_name.replace(' ', '')}{zone_name.replace(' ', '_')}.csv")
     file_exists = os.path.isfile(filename)
     now = datetime.datetime.now()
     system_timestamp_str = now.strftime("%Y-%m-%d %H:%M:%S")
@@ -594,3 +594,60 @@ def snapshot_for_zone_editor(camera_id):
     response.mimetype = 'image/jpeg'
     return response
 
+@movement_monitoring_bp.route('/camera/<int:camera_id>/live_feed')
+def live_feed(camera_id):
+    """Serve the live processed frame with annotations"""
+    camera = get_camera_by_id_from_db(camera_id)
+    if not camera:
+        return jsonify({"error": "Camera not found"}), 404
+
+    frame_to_serve = None
+
+    # Try to get the latest processed frame from active stream
+    if camera_id in ACTIVE_STREAMS and ACTIVE_STREAMS[camera_id].get('latest_frame') is not None:
+        with ACTIVE_STREAMS[camera_id]['lock']:
+            frame_to_serve = ACTIVE_STREAMS[camera_id]['latest_frame'].copy()
+    
+    # If no active stream, try to get a single frame (same as snapshot_for_zone_editor but without zone overlays)
+    if frame_to_serve is None:
+        current_app.logger.info(f"No active stream for live feed (cam {camera_id}). Attempting single frame grab.")
+        cap = None
+        try:
+            if camera['source_type'] == 'video_file':
+                if not os.path.exists(camera['source_path']):
+                    return jsonify({"error": f"Video file not found: {camera['source_path']}"}), 404
+                cap = cv2.VideoCapture(camera['source_path'])
+            elif camera['source_type'] == 'stream':
+                cap = cv2.VideoCapture(camera['source_path'], cv2.CAP_FFMPEG)
+            
+            if cap and cap.isOpened():
+                ret, frame = cap.read()
+                if ret:
+                    frame_to_serve = frame
+                else:
+                    current_app.logger.warning(f"Could not read frame for live feed from {camera['source_path']}")
+            else:
+                current_app.logger.warning(f"Could not open video source for live feed: {camera['source_path']}")
+        except Exception as e:
+            current_app.logger.error(f"Error grabbing single frame for live feed (cam {camera_id}): {e}")
+        finally:
+            if cap:
+                cap.release()
+
+    if frame_to_serve is None:
+        # Create a dummy image if no frame is available
+        dummy_frame = np.zeros((240, 320, 3), dtype=np.uint8)
+        cv2.putText(dummy_frame, "No Video Feed", (80, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        cv2.putText(dummy_frame, f"Camera: {camera['name']}", (40, 160), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        frame_to_serve = dummy_frame
+
+    _, buffer = cv2.imencode('.jpg', frame_to_serve)
+    response = make_response(buffer.tobytes())
+    response.mimetype = 'image/jpeg'
+    
+    # Add headers to prevent caching for live feed
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    
+    return response
