@@ -2,11 +2,12 @@
 {% block title %}Home - VISION App{% endblock %}
 
 {% block content %}
-<div class="jumbotron">
+<div class="jumbotron text-center">
     <h1 class="display-4">Welcome to VISION!</h1>
     <p class="lead">Visual Intelligence for Surveillance, Identification and Organisational Networking.</p>
+    <img src="{{ url_for('static', filename='VISION_logo_V1.png') }}" alt="VISION Logo" class="img-fluid mb-3" style="max-width: 300px;">
     <hr class="my-4">
-    <p>Version 0.9: Dress Analysis (via OpenCV window) & Face Recognition.</p>
+    <p>Version 1.0: Surveillance, Dress Analysis & Face Recognition.</p>
 </div>
 
 <div class="row">

@@ -8,8 +8,8 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-        <a class="navbar-brand" href="{{ url_for('index') }}">VISION v0.1</a>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark sticky-top">
+        <a class="navbar-brand" href="{{ url_for('index') }}">VISION v1.0</a>
         <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
             <span class="navbar-toggler-icon"></span>
         </button>
@@ -25,6 +25,13 @@
                     <a class="nav-link" href="{{ url_for('movement_monitoring.dashboard') }}">Surveillance</a>
                 </li>
             </ul>
+            <ul class="navbar-nav ml-auto">
+                <!-- github link and star request -->
+                <li class="nav-item">
+                    <a class="nav-link" href="https://github.com/Lalit-Dumka/VISION" target="_blank">
+                        <i class="fab fa-github"></i> GitHub
+                    </a>
+                </li>
         </div>
     </nav>
 
@@ -32,6 +39,15 @@
         {% include '_flash_messages.html' %}
         {% block content %}{% endblock %}
     </div>
+
+    <footer class="text-center mt-4 bg-light py-3" style="position: relative; bottom: 0; width: 100%;">
+        <hr>
+        <p>&copy; 2025 VISION App. All rights reserved.</p>
+        <p>Version 1.0: Surveillance, Dress Analysis & Face Recognition.</p>
+        <!-- <p>Developed by <a href="https://www.linkedin.com/in/lalit-dumka" target="_blank">Lalit Dumka</a> with the invaluable help from <a href="https://www.linkedin.com/in/karan-pratap-singh-kharka-9b874726a/" target="_blank">Karanpratap Singh Kharka</a> &amp; <a href="https://www.linkedin.com/in/kavi-kandpal-609407244/" target="_blank">Kavi Kandpal</a></p> -->
+        <p>Contributions are welcome! Please check out our <a href="https://github.com/Lalit-Dumka/VISION" target="_blank">GitHub</a>.</p>
+
+    </footer>
 
     <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.3/dist/umd/popper.min.js"></script>

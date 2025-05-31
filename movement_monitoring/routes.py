@@ -679,6 +679,7 @@ def process_camera_stream(camera_id, source_path, source_type, stop_event):
                     ACTIVE_STREAMS[camera_id]['latest_frame'] = processed_frame.copy()
             
             # Skip video display for production
+            cv2.resize(processed_frame, (720, 480))  # Resize for better visibility in UI
             cv2.imshow(f"Movement Tracking: {camera_db_info['name']}", processed_frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                break
