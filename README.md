@@ -1,6 +1,6 @@
 # VISION - Visual Intelligence for Surveillance, Identification and Organizational Networking
 
-Version: 0.9
+Version: 1.0
 
 <!-- badges -->
 [![CC BY-NC-SA 4.0][cc-by-nc-sa-shield]][cc-by-nc-sa]
